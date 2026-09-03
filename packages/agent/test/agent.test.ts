@@ -1,14 +1,7 @@
 import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import {
-	Agent,
-	type AgentEvent,
-	type AgentTool,
-	type AgentToolUpdateCallback,
-	type StreamFn,
-	setDefaultStreamFn,
-} from "../src/index.ts";
+import { Agent, type AgentEvent, type AgentTool, type AgentToolUpdateCallback, type StreamFn } from "../src/index.ts";
 
 // Mock stream that mimics AssistantMessageEventStream
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -82,25 +75,8 @@ function createDeferred(): {
 }
 
 describe("Agent", () => {
-	it("uses the configured default when a legacy caller omits streamFn", async () => {
-		let calls = 0;
-		setDefaultStreamFn(() => {
-			calls++;
-			const stream = new MockAssistantStream();
-			queueMicrotask(() => {
-				const message = createAssistantMessage("fallback");
-				stream.push({ type: "done", reason: "stop", message });
-			});
-			return stream;
-		});
-
-		try {
-			const agent = Reflect.construct(Agent, [{}]) as Agent;
-			await agent.prompt("Hello");
-			expect(calls).toBe(1);
-		} finally {
-			setDefaultStreamFn(undefined);
-		}
+	it("throws a targeted error when a legacy caller omits streamFn", () => {
+		expect(() => Reflect.construct(Agent, [{}]) as Agent).toThrow(/no provider-aware stream function/i);
 	});
 
 	it("should create an agent instance with default state", () => {

@@ -1876,6 +1876,53 @@ pi.registerCommand("my-setup-teardown", {
 });
 ```
 
+### pi.registerProviderRequestMiddleware(middleware)
+
+Register provider-scoped request middleware owned by this extension. Middleware transforms or observes requests for **one exact provider** — header transforms, adapter-built payload transforms, and response observers — inside the session's `ModelRuntime`.
+
+Use it when a transform must apply to **every request dispatched through a provider**, not just requests made by one agent session. Because it lives in the runtime, same-process background agents that share the session's transport binding (see [sdk.md](sdk.md)) observe identical request behavior. The per-agent `before_provider_headers`, `before_provider_request`, and `after_provider_response` events remain the right choice for session-scoped interception.
+
+```typescript
+export default function (pi) {
+  pi.registerProviderRequestMiddleware({
+    // Unique ID within this session's runtime.
+    id: "trace-headers",
+    // Exact provider ID, or an array of provider IDs.
+    provider: "anthropic",
+    // Optional narrowers: model IDs and/or API types, applied after provider matching.
+    // models: ["claude-sonnet-4-5"],
+    // apis: ["anthropic-messages"],
+    // Lower runs earlier. Ties resolve by registration order.
+    priority: 0,
+    transformHeaders: (headers, ctx) => ({ ...headers, "x-trace-flags": "sampled" }),
+    transformPayload: (payload, ctx) => {
+      // Runs after per-agent `before_provider_request` handlers, on the
+      // adapter-built native request body. Return undefined to keep it.
+      return { ...payload, metadata: { requestId: ctx.requestId, purpose: ctx.purpose } };
+    },
+    afterResponse: (response, ctx) => {
+      // Observes normalized status and headers before the body is consumed.
+    },
+  });
+}
+```
+
+**Semantics:**
+
+- **Scope** is the exact provider ID — two providers sharing one wire protocol (for example `anthropic` and an `anthropic-messages` gateway) remain isolated. `models` and `apis` narrow further after provider matching.
+- **Order**: middleware runs after existing per-call `transformHeaders` / `onPayload` / `onResponse` callbacks, so runtime policy sees the final request view. Multiple registrations run by ascending `priority` (default 0), then registration order.
+- **Payloads** are the provider's native serialized request body (Anthropic Messages parameters, OpenAI Responses body, ...). Return `undefined` (or nothing) to keep the payload; any other value replaces it. Middleware must not assume a schema unless it scopes itself with `apis`.
+- **Headers** merge case-insensitively; a `null` value removes a header where the provider contract permits. Bedrock SigV4-reserved headers (`x-amz-*`, `authorization`, `host`) cannot be replaced.
+- **Failures** are strict: a throwing transform fails the request before send; a throwing observer fails the request, matching awaited-callback behavior.
+- **Retries**: `ctx.attempt` is the 0-based network attempt when the adapter retries (adapters invoke callbacks once per attempt).
+- **Context** (`ctx`) exposes `requestId`, `runtimeId`, `providerId`, `model`, `api`, `purpose`, `attempt`, and `signal`. `purpose` is untrusted caller-supplied routing metadata — never treat it as authorization.
+
+**Lifecycle**: registrations are bound to the extension. A `/reload` or session shutdown disposes them automatically; reloaded extensions register fresh middleware, and in-flight requests finish with the snapshot they captured. The `id` must be unique within the session's runtime, and at least one of `transformHeaders`, `transformPayload`, or `afterResponse` is required.
+
+**Security**: this API is highly privileged — middleware can inspect prompts, tool schemas, and headers. Never log authorization headers, cookies, or credentials in middleware.
+
+SDK hosts that do not use extensions can register the same middleware directly with `modelRuntime.registerRequestMiddleware(middleware)`; disposal is manual via the returned registration handle or `disposeRequestMiddlewareOwner(owner)`.
+
 ## State Management
 
 Extensions with state should store it in tool result `details` for proper branching support:

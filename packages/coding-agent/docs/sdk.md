@@ -259,6 +259,59 @@ session.agent.state.tools = tools; // copies the top-level array
 await session.agent.waitForIdle();
 ```
 
+### Transport Bindings and Background Agents
+
+A `StreamFn` is a capability: permission to issue model requests through one host runtime. Since v0.8x there is **no process-global default stream function** — every `Agent` and low-level agent loop must receive an explicit one, and constructing without it throws a configuration error before the first model request. This keeps background requests on the same provider composition, credentials, retry policy, and provider request middleware as the foreground session.
+
+`AgentSession.getTransportBinding()` returns the exact stream function already assigned to `session.agent`, plus the owning runtime's diagnostic ID:
+
+```typescript
+import { createBackgroundAgent, createAgentSession } from "@earendil-works/pi-coding-agent";
+
+const { session } = await createAgentSession();
+const binding = session.getTransportBinding();
+// binding.streamFn === session.agent.streamFunction
+// binding.runtimeId — diagnostic metadata only, never authentication
+
+// Same-process background agent sharing the host runtime
+const summarizer = createBackgroundAgent({
+  transport: binding,
+  initialState: {
+    systemPrompt: "Summarize the given transcript.",
+    model: session.model!,
+    thinkingLevel: "low",
+    tools: [],
+  },
+  requestPurpose: "background", // or "subagent" | "compaction" | "branch-summary"
+});
+await summarizer.prompt("Summarize: ...");
+```
+
+`requestPurpose` is untrusted routing/tracing metadata forwarded with each request; hosts can use it to scope provider request middleware and rate policy, but it is never authorization. The session's own requests are labeled `"interactive"`, automatic compaction `"compaction"`, and branch summarization `"branch-summary"`.
+
+A `StreamFn` **cannot cross a process boundary**. Subprocesses must either construct their own `ModelRuntime` from declarative provider/extension sources or use a parent-owned RPC transport.
+
+SDK hosts that manage a `ModelRuntime` directly can also compose the canonical stream function themselves with `createRuntimeStreamFunction({ modelRuntime, settingsManager, getExtensionRunner })` and `createTransportBinding(...)` from `@earendil-works/pi-coding-agent`.
+
+### Provider Request Middleware (SDK surface)
+
+`ModelRuntime` owns an instance-local registry of provider-scoped request middleware. Extensions normally register through `pi.registerProviderRequestMiddleware()` (see [extensions.md](extensions.md)); SDK hosts can use the direct surface:
+
+```typescript
+const registration = modelRuntime.registerRequestMiddleware({
+  id: "audit",
+  provider: "anthropic",
+  afterResponse: (response) => {
+    if (response.status === 429) console.warn("anthropic rate limited");
+  },
+});
+
+registration.dispose(); // remove from future requests; in-flight requests finish normally
+modelRuntime.disposeRequestMiddlewareOwner("my-owner"); // bulk disposal by owner
+```
+
+Middleware applies to `stream()` and `streamSimple()` dispatch only; deferred fetch/cancel bypasses it (documented gap). Composition order, payload/header semantics, and lifecycle are identical to the extension surface — see [extensions.md](extensions.md#registerproviderrequestmiddlewaremiddleware) for the full contract.
+
 ### Events
 
 Subscribe to events to receive streaming output and lifecycle notifications.

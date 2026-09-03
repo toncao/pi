@@ -202,7 +202,7 @@ const agent = new Agent({
   // Follow-up mode: "one-at-a-time" (default) or "all"
   followUpMode: "one-at-a-time",
 
-  // Required stream function
+  // Required stream function — see "Stream functions" below
   streamFn: models.streamSimple.bind(models),
 
   // Session ID for provider caching
@@ -511,6 +511,24 @@ for await (const event of agentLoopContinue(context, config, undefined, streamFn
 ```
 
 These low-level streams are observational. They preserve event order, but they do not wait for your async event handling to settle before later producer phases continue. If you need message processing to act as a barrier before tool preflight, use the `Agent` class instead of raw `agentLoop()` or `agentLoopContinue()`.
+
+## Stream Functions
+
+Every `Agent` constructor and low-level loop call requires an explicit `streamFn`. There is no process-global default: a host that omits it fails with a configuration error before the first model request.
+
+A `StreamFn` is a capability — permission to issue model requests through a particular host runtime. Hosts that own provider selection, credentials, retry policy, or request middleware (for example `@earendil-works/pi-coding-agent`'s `ModelRuntime`) should derive stream functions from that runtime and pass the same function to foreground and same-process background agents, so all requests resolve the same provider behavior. A `StreamFn` cannot cross a process boundary; subprocesses need their own runtime or a parent-owned RPC transport.
+
+```typescript
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+
+// Typical host: bind the runtime's dispatch
+const streamFn: StreamFn = (model, context, options) =>
+  modelRuntime.streamSimple(model, context, options);
+
+const agent = new Agent({ streamFn, /* ... */ });
+```
+
+Optional `requestPurpose` metadata on `AgentOptions` (or the loop config) flows through to the stream function's options for tracing and host-side policy.
 
 ## License
 

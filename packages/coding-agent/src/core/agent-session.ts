@@ -25,7 +25,7 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText } from "@earendil-works/pi-ai";
+import { contentText, uuidv7 } from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -101,6 +101,7 @@ import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import type { AgentTransportBinding } from "./runtime-stream-function.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { getLatestCompactionEntry } from "./session-manager.ts";
@@ -370,6 +371,9 @@ export class AgentSession {
 
 	private _modelRuntime: ModelRuntime;
 
+	/** Owner identity for extension-registered provider request middleware. */
+	private readonly _requestMiddlewareOwner: string;
+
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
 	private _toolDefinitions: Map<string, ToolDefinitionEntry> = new Map();
@@ -390,6 +394,7 @@ export class AgentSession {
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
 		this._modelRuntime = config.modelRuntime;
+		this._requestMiddlewareOwner = `agent-session:${uuidv7()}`;
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
@@ -879,6 +884,9 @@ export class AgentSession {
 	 * Call this when completely done with the session.
 	 */
 	dispose(): void {
+		// Remove this session's extension request middleware; in-flight requests
+		// finish with the snapshot they captured.
+		this._modelRuntime.disposeRequestMiddlewareOwner(this._requestMiddlewareOwner);
 		try {
 			this.abortRetry();
 			this.abortCompaction();
@@ -914,6 +922,19 @@ export class AgentSession {
 	/** Current thinking level */
 	get thinkingLevel(): ThinkingLevel {
 		return this.agent.state.thinkingLevel;
+	}
+
+	/**
+	 * Transport capability bound to this session's runtime.
+	 *
+	 * The returned `streamFn` is the exact function assigned to `session.agent`.
+	 * Same-process background agents constructed with it resolve the same
+	 * provider composition, credentials, retry policy, and provider request
+	 * middleware as the foreground session. The binding is valid while this
+	 * session's `ModelRuntime` remains active; `runtimeId` is diagnostic only.
+	 */
+	getTransportBinding(): AgentTransportBinding {
+		return { streamFn: this.agent.streamFunction, runtimeId: this._modelRuntime.runtimeId };
 	}
 
 	/** Whether the session is currently processing an agent run or post-run continuation. */
@@ -2664,6 +2685,12 @@ export class AgentSession {
 					this._modelRuntime.unregisterProvider(name);
 					this._refreshCurrentModelFromRegistry();
 				},
+				// Extension middleware is owned by this session's runner so reload and
+				// disposal remove the whole set atomically; in-flight requests finish
+				// with the snapshot they captured.
+				registerProviderRequestMiddleware: (middleware) => {
+					this._modelRuntime.registerRequestMiddleware(middleware, this._requestMiddlewareOwner);
+				},
 			},
 		);
 	}
@@ -2820,6 +2847,9 @@ export class AgentSession {
 		const previousFlagValues = oldRunner.getFlagValues();
 		await emitSessionShutdownEvent(oldRunner, { type: "session_shutdown", reason: "reload" });
 		oldRunner.invalidate();
+		// Drop the old extension set's request middleware atomically; reloaded
+		// extensions re-register under the same owner below.
+		this._modelRuntime.disposeRequestMiddlewareOwner(this._requestMiddlewareOwner);
 		await this.settingsManager.reload();
 		this.syncQueueModesFromSettings();
 		resetApiProviders();

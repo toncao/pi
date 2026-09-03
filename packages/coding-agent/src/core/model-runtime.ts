@@ -35,6 +35,7 @@ import {
 	type ProviderRequestOptions,
 	type SimpleStreamOptions,
 	type StreamOptions,
+	uuidv7,
 } from "@earendil-works/pi-ai";
 import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
 import { getAgentDir } from "../config.ts";
@@ -52,6 +53,12 @@ import {
 	resolveConfiguredModelHeaders,
 	validateExtensionProvider,
 } from "./provider-composer.ts";
+import {
+	type ProviderRequestMiddleware,
+	type ProviderRequestMiddlewareChain,
+	type ProviderRequestMiddlewareRegistration,
+	ProviderRequestMiddlewareRegistry,
+} from "./provider-request-middleware.ts";
 import { withRemoteCatalog } from "./remote-catalog-provider.ts";
 import { RuntimeCredentials } from "./runtime-credentials.ts";
 
@@ -128,6 +135,9 @@ function mergeHeaders(
 
 /** Configured pi-ai Models collection used by coding-agent and SDK consumers. */
 export class ModelRuntime implements Models {
+	/** Stable diagnostic ID for this runtime instance. Not authentication. */
+	readonly runtimeId = uuidv7();
+	private readonly requestMiddleware = new ProviderRequestMiddlewareRegistry();
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
@@ -573,6 +583,7 @@ export class ModelRuntime implements Models {
 	private async prepareRequest<TOptions extends ProviderRequestOptions & ModelsRequestTransforms>(
 		model: Model<Api>,
 		options: TOptions | undefined,
+		requestId?: string,
 	): Promise<{
 		provider: Provider;
 		model: Model<Api>;
@@ -591,10 +602,44 @@ export class ModelRuntime implements Models {
 		const providerOptions = rawProviderOptions as Omit<TOptions, "transformHeaders"> & ProviderRequestOptions;
 		let headers = mergeHeaders(resolution.auth.headers, providerOptions.headers);
 		if (transformHeaders) headers = await transformHeaders(headers ?? {});
+		// Provider-scoped request middleware runs after the existing per-call header
+		// transform so runtime middleware sees the final header set. Snapshot is
+		// per logical request: disposal after this point does not affect this chain.
+		let chain: ProviderRequestMiddlewareChain | undefined;
+		if (requestId && this.requestMiddleware.size > 0) {
+			chain = this.requestMiddleware.snapshot({
+				requestId,
+				runtimeId: this.runtimeId,
+				providerId: model.provider,
+				model,
+				purpose: options?.requestPurpose ?? "other",
+				signal: options?.signal,
+			});
+			if (!chain.empty) headers = await chain.transformHeaders(headers ?? {});
+		}
 		const env =
 			resolution.env || providerOptions.env
 				? { ...(resolution.env ?? {}), ...(providerOptions.env ?? {}) }
 				: undefined;
+		if (chain && !chain.empty) {
+			// Compose middleware after existing per-call callbacks so runtime policy
+			// observes the final request view. Attempt counting is per logical
+			// dispatch: adapters invoke onPayload once per network attempt.
+			const callerOnPayload = providerOptions.onPayload;
+			const callerOnResponse = providerOptions.onResponse;
+			let attempts = 0;
+			providerOptions.onPayload = async (payload, payloadModel) => {
+				const callerResult = await callerOnPayload?.(payload, payloadModel);
+				const next = callerResult === undefined ? payload : callerResult;
+				const attempt = attempts;
+				attempts++;
+				return await chain.transformPayload(next, attempt);
+			};
+			providerOptions.onResponse = async (response, responseModel) => {
+				await callerOnResponse?.(response, responseModel);
+				await chain.afterResponse(response, Math.max(0, attempts - 1));
+			};
+		}
 		return {
 			provider,
 			model: resolution.auth.baseUrl ? { ...model, baseUrl: resolution.auth.baseUrl } : model,
@@ -613,9 +658,13 @@ export class ModelRuntime implements Models {
 		options?: ModelsApiStreamOptions<TApi>,
 	): AssistantMessageEventStream {
 		return lazyStream(model, async () => {
+			// Request middleware applies to streaming dispatch only; deferred
+			// fetch/cancel intentionally bypasses it (documented gap).
+			const requestId = this.requestMiddleware.size > 0 ? uuidv7() : undefined;
 			const prepared = await this.prepareRequest(
 				model,
 				options as (StreamOptions & ModelsRequestTransforms) | undefined,
+				requestId,
 			);
 			return prepared.provider.stream(
 				prepared.model as Model<TApi>,
@@ -635,7 +684,8 @@ export class ModelRuntime implements Models {
 
 	streamSimple(model: Model<Api>, context: Context, options?: ModelsSimpleStreamOptions): AssistantMessageEventStream {
 		return lazyStream(model, async () => {
-			const prepared = await this.prepareRequest(model, options);
+			const requestId = this.requestMiddleware.size > 0 ? uuidv7() : undefined;
+			const prepared = await this.prepareRequest(model, options, requestId);
 			return prepared.provider.streamSimple(prepared.model, context, prepared.options as SimpleStreamOptions);
 		});
 	}
@@ -736,6 +786,31 @@ export class ModelRuntime implements Models {
 			}
 		}
 		return { aborted: result.aborted || (options.signal?.aborted ?? false), errors };
+	}
+
+	/**
+	 * Register provider-scoped request middleware on this runtime.
+	 *
+	 * Direct SDK surface. Extension authors should prefer
+	 * `pi.registerProviderRequestMiddleware()`, which ties disposal to the
+	 * extension lifecycle automatically. `owner` namespaces duplicate-ID
+	 * rejection and enables `disposeRequestMiddlewareOwner` bulk disposal.
+	 */
+	registerRequestMiddleware(
+		middleware: ProviderRequestMiddleware,
+		owner = "sdk",
+	): ProviderRequestMiddlewareRegistration {
+		return this.requestMiddleware.register(middleware, owner);
+	}
+
+	/** Remove every middleware registration owned by `owner`. In-flight snapshots finish normally. */
+	disposeRequestMiddlewareOwner(owner: string): void {
+		this.requestMiddleware.disposeOwner(owner);
+	}
+
+	/** Diagnostic list of active middleware IDs (unordered). */
+	getRequestMiddlewareIds(): readonly string[] {
+		return this.requestMiddleware.ids();
 	}
 
 	registerNativeProvider(provider: Provider): void {

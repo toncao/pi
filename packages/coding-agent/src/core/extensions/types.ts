@@ -55,6 +55,7 @@ import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { ProviderRequestMiddleware } from "../provider-request-middleware.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -1501,6 +1502,39 @@ export interface ExtensionAPI {
 	 */
 	unregisterProvider(name: string): void;
 
+	/**
+	 * Register provider-scoped request middleware owned by this extension.
+	 *
+	 * Middleware transforms or observes requests for one exact provider (header
+	 * transforms, adapter-built payload transforms, response observers) inside
+	 * the session's `ModelRuntime`. It applies to every request dispatched through
+	 * that runtime - foreground and same-process background agents alike - and
+	 * runs after per-agent `before_provider_headers` / `before_provider_request`
+	 * handlers so runtime policy sees the final request view.
+	 *
+	 * Registration is bound to this extension's lifecycle: reloading or shutting
+	 * down the session disposes it automatically; in-flight requests finish
+	 * with the snapshot they captured. The `id` must be unique within this
+	 * session's runtime, and at least one callback must be present.
+	 *
+	 * This API is highly privileged: middleware can inspect prompts, tool
+	 * schemas, and request headers. Extensions already run with the user's full
+	 * local permissions; keep middleware side-effect free unless intentionally
+	 * routing requests, and never log authorization headers or credentials.
+	 *
+	 * The existing `before_provider_request` / `after_provider_response` events
+	 * remain available for per-agent interception; prefer middleware when the
+	 * transform must apply to every request through a provider.
+	 *
+	 * @example
+	 * pi.registerProviderRequestMiddleware({
+	 *   id: "trace-headers",
+	 *   provider: "anthropic",
+	 *   transformHeaders: (headers) => ({ ...headers, "x-trace-flags": "sampled" }),
+	 * });
+	 */
+	registerProviderRequestMiddleware(middleware: ProviderRequestMiddleware): void;
+
 	/** Shared event bus for extension communication. */
 	events: EventBus;
 }
@@ -1672,6 +1706,11 @@ export interface ExtensionRuntimeState {
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;
 	/** Native pi-ai provider registrations queued during extension loading, processed when runner binds. */
 	pendingNativeProviderRegistrations: Array<{ provider: Provider; extensionPath: string }>;
+	/** Provider request-middleware registrations queued during extension loading, processed when runner binds. */
+	pendingRequestMiddlewareRegistrations: Array<{
+		middleware: ProviderRequestMiddleware;
+		extensionPath: string;
+	}>;
 	/** Throws when this extension instance is stale after runtime replacement. */
 	assertActive: () => void;
 	/** Marks this extension instance as stale after runtime replacement or reload. */
@@ -1687,6 +1726,8 @@ export interface ExtensionRuntimeState {
 	registerProvider: (name: string, config: ProviderConfig, extensionPath?: string) => void;
 	registerNativeProvider: (provider: Provider, extensionPath?: string) => void;
 	unregisterProvider: (name: string, extensionPath?: string) => void;
+	/** Register provider request middleware bound to the extension lifecycle. */
+	registerRequestMiddleware: (middleware: ProviderRequestMiddleware, extensionPath?: string) => void;
 }
 
 /**

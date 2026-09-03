@@ -198,8 +198,22 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
+export type {
+	ProviderRequestMiddleware,
+	ProviderRequestMiddlewareContext,
+	ProviderRequestMiddlewareRegistration,
+	ProviderRequestPurpose,
+} from "./core/provider-request-middleware.ts";
 export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
+export {
+	type AgentTransportBinding,
+	type CreateBackgroundAgentOptions,
+	createBackgroundAgent,
+	createRuntimeStreamFunction,
+	createTransportBinding,
+	type RuntimeStreamFunctionOptions,
+} from "./core/runtime-stream-function.ts";
 // SDK for programmatic usage
 export {
 	AgentSessionRuntime,

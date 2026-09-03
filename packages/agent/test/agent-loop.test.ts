@@ -9,7 +9,6 @@ import {
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { agentLoop, agentLoopContinue } from "../src/agent-loop.ts";
-import { setDefaultStreamFn } from "../src/index.ts";
 import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, AgentTool } from "../src/types.ts";
 
 // Mock stream for testing - mimics MockAssistantStream
@@ -81,37 +80,19 @@ function identityConverter(messages: AgentMessage[]): Message[] {
 	return messages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult") as Message[];
 }
 
-describe("default stream function compatibility", () => {
-	it("uses the configured default when a legacy caller omits streamFn", async () => {
-		let calls = 0;
-		setDefaultStreamFn(() => {
-			calls++;
-			const stream = new MockAssistantStream();
-			queueMicrotask(() => {
-				stream.push({
-					type: "done",
-					reason: "stop",
-					message: createAssistantMessage([{ type: "text", text: "fallback" }]),
-				});
-			});
-			return stream;
-		});
-
-		try {
-			const context: AgentContext = { systemPrompt: "", messages: [], tools: [] };
-			const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
-			const stream = Reflect.apply(agentLoop, undefined, [
-				[createUserMessage("Hello")],
-				context,
-				config,
-				undefined,
-			]) as ReturnType<typeof agentLoop>;
-
-			await stream.result();
-			expect(calls).toBe(1);
-		} finally {
-			setDefaultStreamFn(undefined);
-		}
+describe("stream function requirement", () => {
+	it("throws a targeted error when agentLoop omits streamFn", () => {
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		expect(
+			() =>
+				Reflect.apply(agentLoop, undefined, [
+					[createUserMessage("Hello")],
+					context,
+					config,
+					undefined,
+				]) as ReturnType<typeof agentLoop>,
+		).toThrow(/no provider-aware stream function/i);
 	});
 });
 

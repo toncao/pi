@@ -148,5 +148,6 @@ export * from "./harness/utils/shell-output.ts";
 export * from "./harness/utils/truncate.ts";
 export * from "./proxy.ts";
 export * from "./search/index.ts";
-export { setDefaultStreamFn } from "./stream-fn.ts";
+// Stream function requirement
+export { MISSING_STREAM_FN_MESSAGE } from "./stream-fn.ts";
 export * from "./types.ts";

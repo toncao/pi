@@ -590,6 +590,9 @@ export async function completeSummarization(
 		...options,
 		cacheRetention: "none",
 		sessionId: options.sessionId ?? uuidv7(),
+		// Maintenance traffic is labeled so host middleware and diagnostics can
+		// distinguish it from interactive requests.
+		requestPurpose: options.requestPurpose ?? "compaction",
 	};
 	const produce = async (): Promise<AssistantMessage> =>
 		streamFn

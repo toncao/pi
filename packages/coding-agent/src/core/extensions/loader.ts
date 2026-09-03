@@ -30,6 +30,7 @@ import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { readPiManifest } from "../pi-manifest.ts";
+import type { ProviderRequestMiddleware } from "../provider-request-middleware.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
 import { time } from "../timings.ts";
 import type {
@@ -205,6 +206,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		flagValues: new Map(),
 		pendingProviderRegistrations: [],
 		pendingNativeProviderRegistrations: [],
+		pendingRequestMiddlewareRegistrations: [],
 		assertActive,
 		invalidate: (message) => {
 			if (state.staleMessage) return;
@@ -232,6 +234,9 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		},
 		registerNativeProvider: (provider, extensionPath = "<unknown>") => {
 			runtime.pendingNativeProviderRegistrations.push({ provider, extensionPath });
+		},
+		registerRequestMiddleware: (middleware, extensionPath = "<unknown>") => {
+			runtime.pendingRequestMiddlewareRegistrations.push({ middleware, extensionPath });
 		},
 		unregisterProvider: (name) => {
 			runtime.pendingProviderRegistrations = runtime.pendingProviderRegistrations.filter((r) => r.name !== name);
@@ -440,6 +445,11 @@ function createExtensionAPI(
 		unregisterProvider(name: string) {
 			assertActive();
 			applyRuntimeChange(() => runtime.unregisterProvider(name, extension.path));
+		},
+
+		registerProviderRequestMiddleware(middleware: ProviderRequestMiddleware) {
+			assertActive();
+			applyRuntimeChange(() => runtime.registerRequestMiddleware(middleware, extension.path));
 		},
 
 		events: {
