@@ -9,14 +9,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { obj } from "@earendil-works/pi-schema";
 import { describe, expect, it } from "vitest";
-import {
-	Agent,
-	type AgentEvent,
-	type AgentTool,
-	type AgentToolUpdateCallback,
-	type StreamFn,
-	setDefaultStreamFn,
-} from "../src/index.ts";
+import { Agent, type AgentEvent, type AgentTool, type AgentToolUpdateCallback, type StreamFn } from "../src/index.ts";
 
 function createUserMessage(text: string): UserMessage {
 	return { role: "user", content: text, timestamp: Date.now() };
@@ -90,25 +83,8 @@ function createDeferred(): {
 }
 
 describe("Agent", () => {
-	it("uses the configured default when a legacy caller omits streamFn", async () => {
-		let calls = 0;
-		setDefaultStreamFn(() => {
-			calls++;
-			const stream = createAssistantMessageEventStream();
-			queueMicrotask(() => {
-				const message = createAssistantMessage("fallback");
-				stream.push({ type: "done", reason: "stop", message });
-			});
-			return stream;
-		});
-
-		try {
-			const agent = Reflect.construct(Agent, [{}]) as Agent;
-			await agent.prompt("Hello");
-			expect(calls).toBe(1);
-		} finally {
-			setDefaultStreamFn(undefined);
-		}
+	it("throws a targeted error when a legacy caller omits streamFn", () => {
+		expect(() => Reflect.construct(Agent, [{}]) as Agent).toThrow(/no provider-aware stream function/i);
 	});
 
 	it("should create an agent instance with default state", () => {

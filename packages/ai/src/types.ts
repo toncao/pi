@@ -145,6 +145,20 @@ export interface ThinkingBudgets {
 }
 
 // Base options all providers share
+/**
+ * Logical purpose of a provider request, used for routing metadata, tracing,
+ * and rate/audit policy. This is untrusted metadata supplied by the caller:
+ * providers and middleware must not treat it as authorization.
+ */
+export type RequestPurpose =
+	| "interactive"
+	| "background"
+	| "subagent"
+	| "compaction"
+	| "branch-summary"
+	| "title-generation"
+	| "other";
+
 export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 
 /** Provider-scoped environment overrides. Values take precedence over process.env. */
@@ -162,6 +176,12 @@ export interface ProviderRequestOptions<TModel = Model<Api>> {
 	signal?: AbortSignal;
 	/** Explicit parent span for telemetry produced by this logical request. */
 	telemetry?: TelemetrySpan;
+	/**
+	 * Logical purpose of this request. Untrusted caller-supplied metadata used for
+	 * tracing, diagnostics, and host-side policy. Adapters ignore this field;
+	 * hosts may use it to scope request middleware or rate policy. Default: "other".
+	 */
+	requestPurpose?: RequestPurpose;
 	apiKey?: string;
 	/**
 	 * Optional fetch implementation for provider HTTP requests.

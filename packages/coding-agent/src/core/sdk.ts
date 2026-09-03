@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
-import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession, markRuntimeStreamFunction } from "./agent-session.ts";
@@ -39,11 +39,6 @@ import {
 	withFileMutationQueue,
 } from "./tools/index.ts";
 import { getBranchSelection } from "./virtual-models.ts";
-
-// Preserve the pre-0.81 fallback for extensions that construct Agent instances
-// or invoke low-level agent loops without supplying streamFn. Agent core remains
-// provider-agnostic and does not import pi-ai/compat itself.
-setDefaultStreamFn(streamSimple);
 
 export interface CreateAgentSessionOptions {
 	/** Working directory for project-local discovery. Default: process.cwd() */
@@ -409,6 +404,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			messages: existingSession.messages,
 		},
 		convertToLlm: convertToLlmWithBlockImages,
+		requestPurpose: "interactive",
 		streamFn: async (model, context, options) => {
 			const requestOptions = buildRequestOptions(options);
 			// Compaction and summaries use their own routing ids; only session requests

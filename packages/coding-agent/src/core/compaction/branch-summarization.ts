@@ -362,7 +362,7 @@ export async function generateBranchSummary(
 	// without running through agent state/events. Retried via completeSummarization
 	// so transient stream drops reuse the configured retry policy.
 	const context = normalizeContext({ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages });
-	const requestOptions: SimpleStreamOptions = { apiKey, headers, env, signal };
+	const requestOptions: SimpleStreamOptions = { apiKey, headers, env, signal, requestPurpose: "branch-summary" };
 	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
 		requestOptions.reasoning = thinkingLevel;
 	}

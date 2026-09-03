@@ -17,6 +17,7 @@ import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { ProviderRequestMiddleware } from "../provider-request-middleware.ts";
 import type { SessionManager } from "../session-manager.ts";
 import {
 	type BuildSystemPromptOptions,
@@ -423,6 +424,8 @@ export class ExtensionRunner {
 			unregisterProvider?: (name: string) => void;
 			registerVirtualModel?: (definition: VirtualModelDefinition) => void;
 			unregisterVirtualModel?: (provider: string, id: string) => void;
+			/** Registers extension-owned provider request middleware; disposal is handled by the session runtime. */
+			registerProviderRequestMiddleware?: (middleware: ProviderRequestMiddleware) => void;
 		},
 	): void {
 		// Copy actions into the shared runtime (all extension APIs reference this)
@@ -518,7 +521,27 @@ export class ExtensionRunner {
 				});
 			}
 		}
+		// Flush provider request-middleware registrations queued during extension
+		// loading. Validation failures surface as extension errors without
+		// aborting the remaining registrations of other extensions.
+		for (const { middleware, extensionPath } of this.runtime.pendingRequestMiddlewareRegistrations) {
+			try {
+				if (providerActions?.registerProviderRequestMiddleware) {
+					providerActions.registerProviderRequestMiddleware(middleware);
+				} else {
+					throw new Error("Provider request middleware registration requires a session model runtime.");
+				}
+			} catch (err) {
+				this.emitError({
+					extensionPath,
+					event: "register_provider_request_middleware",
+					error: err instanceof Error ? err.message : String(err),
+					stack: err instanceof Error ? err.stack : undefined,
+				});
+			}
+		}
 		this.runtime.pendingVirtualModelRegistrations = [];
+		this.runtime.pendingRequestMiddlewareRegistrations = [];
 
 		// From this point on, provider registration/unregistration takes effect immediately
 		// without requiring a /reload.
@@ -547,6 +570,17 @@ export class ExtensionRunner {
 		this.runtime.unregisterVirtualModel = (provider, id) => {
 			if (providerActions?.unregisterVirtualModel) providerActions.unregisterVirtualModel(provider, id);
 			else this.modelRegistry.unregisterVirtualModel(provider, id);
+		};
+		this.runtime.registerRequestMiddleware = (middleware, extensionPath = "<unknown>") => {
+			if (providerActions?.registerProviderRequestMiddleware) {
+				providerActions.registerProviderRequestMiddleware(middleware);
+				return;
+			}
+			this.emitError({
+				extensionPath,
+				event: "register_provider_request_middleware",
+				error: "Provider request middleware registration requires a session model runtime.",
+			});
 		};
 	}
 

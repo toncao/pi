@@ -9,7 +9,6 @@ import {
 import { arr, obj, str } from "@earendil-works/pi-schema";
 import { describe, expect, it } from "vitest";
 import { agentLoop, agentLoopContinue, runAgentLoop, runToolCall } from "../src/agent-loop.ts";
-import { setDefaultStreamFn } from "../src/index.ts";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -76,37 +75,19 @@ function identityConverter(messages: AgentMessage[]): Message[] {
 	) as Message[];
 }
 
-describe("default stream function compatibility", () => {
-	it("uses the configured default when a legacy caller omits streamFn", async () => {
-		let calls = 0;
-		setDefaultStreamFn(() => {
-			calls++;
-			const stream = createAssistantMessageEventStream();
-			queueMicrotask(() => {
-				stream.push({
-					type: "done",
-					reason: "stop",
-					message: createAssistantMessage([{ type: "text", text: "fallback" }]),
-				});
-			});
-			return stream;
-		});
-
-		try {
-			const context: AgentContext = { messages: [], tools: [] };
-			const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
-			const stream = Reflect.apply(agentLoop, undefined, [
-				[createUserMessage("Hello")],
-				context,
-				config,
-				undefined,
-			]) as ReturnType<typeof agentLoop>;
-
-			await stream.result();
-			expect(calls).toBe(1);
-		} finally {
-			setDefaultStreamFn(undefined);
-		}
+describe("stream function requirement", () => {
+	it("throws a targeted error when agentLoop omits streamFn", () => {
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		expect(
+			() =>
+				Reflect.apply(agentLoop, undefined, [
+					[createUserMessage("Hello")],
+					context,
+					config,
+					undefined,
+				]) as ReturnType<typeof agentLoop>,
+		).toThrow(/no provider-aware stream function/i);
 	});
 });
 

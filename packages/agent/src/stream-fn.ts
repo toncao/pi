@@ -1,20 +1,15 @@
-import type { StreamFn } from "./types.ts";
-
-let defaultStreamFn: StreamFn | undefined;
-
 /**
- * Configure the fallback used by Agent and low-level loops when callers omit streamFn.
+ * Error message and guard for callers that omit the required `streamFn`.
  *
- * Hosts that provide a default model runtime can install its stream function here
- * without making pi-agent-core depend on a provider catalog or compatibility layer.
+ * Every agent loop must receive an explicit stream function at construction or
+ * call time. A process-global default is no longer consulted: it silently
+ * bypassed host-owned provider composition (credentials, provider overrides,
+ * and request middleware) for auxiliary/background agents in the same process.
  */
-export function setDefaultStreamFn(streamFn: StreamFn | undefined): void {
-	defaultStreamFn = streamFn;
-}
+export const MISSING_STREAM_FN_MESSAGE =
+	"No provider-aware stream function was supplied. Construct this agent through createAgentSession(), pass a ModelRuntime-derived StreamFn, or provide a custom provider StreamFn explicitly.";
 
-export function getDefaultStreamFn(): StreamFn {
-	if (!defaultStreamFn) {
-		throw new Error("No default stream function configured. Pass streamFn explicitly or call setDefaultStreamFn().");
-	}
-	return defaultStreamFn;
+/** @throws Always; use in place of a missing stream function. */
+export function missingStreamFn(): never {
+	throw new Error(MISSING_STREAM_FN_MESSAGE);
 }

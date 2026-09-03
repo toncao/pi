@@ -18,6 +18,7 @@ import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { type McpServerConfig, McpServerRegistry, validateMcpServerConfig } from "../mcp-servers.ts";
 import { readPiManifest } from "../pi-manifest.ts";
+import type { ProviderRequestMiddleware } from "../provider-request-middleware.ts";
 import { createSyntheticSourceInfo, getSyntheticPathSource, isSyntheticPath } from "../source-info.ts";
 import { time } from "../timings.ts";
 import type { ModelRouteRequest, VirtualModelDefinition } from "../virtual-models.ts";
@@ -196,6 +197,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		mcpServers: new McpServerRegistry(),
 		pendingVirtualModelRegistrations: [],
 		createContext: notInitialized,
+		pendingRequestMiddlewareRegistrations: [],
 		assertActive,
 		invalidate: (message) => {
 			if (state.staleMessage) return;
@@ -223,6 +225,9 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		},
 		registerNativeProvider: (provider, extensionPath = "<unknown>") => {
 			runtime.pendingNativeProviderRegistrations.push({ provider, extensionPath });
+		},
+		registerRequestMiddleware: (middleware, extensionPath = "<unknown>") => {
+			runtime.pendingRequestMiddlewareRegistrations.push({ middleware, extensionPath });
 		},
 		unregisterProvider: (name) => {
 			runtime.pendingProviderRegistrations = runtime.pendingProviderRegistrations.filter((r) => r.name !== name);
@@ -523,6 +528,11 @@ function createExtensionAPI(
 		unregisterVirtualModel(provider: string, id: string) {
 			assertActive();
 			applyRuntimeChange(() => runtime.unregisterVirtualModel(provider, id));
+		},
+
+		registerProviderRequestMiddleware(middleware: ProviderRequestMiddleware) {
+			assertActive();
+			applyRuntimeChange(() => runtime.registerRequestMiddleware(middleware, extension.path));
 		},
 
 		events: {

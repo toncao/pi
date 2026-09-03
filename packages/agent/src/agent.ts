@@ -6,6 +6,7 @@ import {
 	type ImageContent,
 	type Message,
 	type Model,
+	type RequestPurpose,
 	type SimpleStreamOptions,
 	type TextContent,
 	type ThinkingBudgets,
@@ -13,7 +14,7 @@ import {
 	toToolDeclaration,
 } from "@earendil-works/pi-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
-import { getDefaultStreamFn } from "./stream-fn.ts";
+import { missingStreamFn } from "./stream-fn.ts";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -117,6 +118,8 @@ export interface AgentOptions {
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	streamFn: StreamFn;
+	/** Logical request purpose forwarded to the stream function for tracing and host-side policy. */
+	requestPurpose?: RequestPurpose;
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	onPayload?: SimpleStreamOptions["onPayload"];
 	onResponse?: SimpleStreamOptions["onResponse"];
@@ -200,6 +203,8 @@ export class Agent {
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	public streamFunction: StreamFn;
+	/** Logical request purpose forwarded with each provider request. */
+	public requestPurpose: RequestPurpose | undefined;
 	public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	public onPayload?: SimpleStreamOptions["onPayload"];
 	public onResponse?: SimpleStreamOptions["onResponse"];
@@ -241,7 +246,8 @@ export class Agent {
 		this._state = createMutableAgentState(runtimeOptions.initialState);
 		this.convertToLlm = runtimeOptions.convertToLlm ?? defaultConvertToLlm;
 		this.transformContext = runtimeOptions.transformContext;
-		this.streamFunction = runtimeOptions.streamFn ?? getDefaultStreamFn();
+		this.streamFunction = runtimeOptions.streamFn ?? missingStreamFn();
+		this.requestPurpose = runtimeOptions.requestPurpose;
 		this.getApiKey = runtimeOptions.getApiKey;
 		this.onPayload = runtimeOptions.onPayload;
 		this.onResponse = runtimeOptions.onResponse;
@@ -479,6 +485,7 @@ export class Agent {
 			model: this._state.model,
 			reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
 			sessionId: this.sessionId,
+			requestPurpose: this.requestPurpose,
 			onPayload: this.onPayload,
 			onResponse: this.onResponse,
 			onProviderStreamEvent: this.onProviderStreamEvent,
