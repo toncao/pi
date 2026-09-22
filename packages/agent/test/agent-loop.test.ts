@@ -84,7 +84,7 @@ function identityConverter(messages: AgentMessage[]): Message[] {
 
 describe("stream function requirement", () => {
 	it("throws a targeted error when agentLoop omits streamFn", () => {
-		const context: AgentContext = { systemPrompt: "", messages: [], tools: [] };
+		const context: AgentContext = { messages: [], tools: [] };
 		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
 		expect(
 			() =>

@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 const telemetrySrcIndex = fileURLToPath(new URL("../telemetry/src/index.ts", import.meta.url));
 const aiSrcIndex = fileURLToPath(new URL("../ai/src/index.ts", import.meta.url));
 const aiSrcCompat = fileURLToPath(new URL("../ai/src/compat.ts", import.meta.url));
+const aiSrcUtils = fileURLToPath(new URL("../ai/src/utils", import.meta.url));
+const aiSrcProviders = fileURLToPath(new URL("../ai/src/providers", import.meta.url));
 const agentSrcIndex = fileURLToPath(new URL("./src/index.ts", import.meta.url));
 
 export default defineConfig({
@@ -21,6 +23,8 @@ export default defineConfig({
 			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentSrcIndex },
 			{ find: /^@earendil-works\/pi-ai$/, replacement: aiSrcIndex },
 			{ find: /^@earendil-works\/pi-ai\/compat$/, replacement: aiSrcCompat },
+			{ find: /^@earendil-works\/pi-ai\/utils\/(.+)$/, replacement: `${aiSrcUtils}/$1.ts` },
+			{ find: /^@earendil-works\/pi-ai\/providers\/(.+)$/, replacement: `${aiSrcProviders}/$1.ts` },
 		],
 	},
 	ssr: { resolve: { conditions: ["source"] } },

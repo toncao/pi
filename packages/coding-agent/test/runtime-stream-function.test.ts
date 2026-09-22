@@ -4,13 +4,14 @@ import { join } from "node:path";
 import {
 	type Api,
 	type AssistantMessage,
-	type Context,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
 	InMemoryModelsStore,
 	type Model,
+	normalizeContext,
 	type Provider,
 	type SimpleStreamOptions,
+	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -85,8 +86,8 @@ async function createTestRuntime(providers: Provider[]): Promise<ModelRuntime> {
 	return runtime;
 }
 
-function emptyContext(): Context {
-	return { systemPrompt: "", messages: [] };
+function emptyContext(): TranscriptContext {
+	return normalizeContext({ systemPrompt: "", messages: [] });
 }
 
 describe("runtime stream function factory", () => {
