@@ -67,7 +67,7 @@ const context = normalizeContext({
 	tools: [],
 });
 
-async function consume(options?: { maxRetries?: number; maxRetryDelayMs?: number }) {
+async function consume(options?: Parameters<typeof streamOpenAICompletions>[2]) {
 	const stream = streamOpenAICompletions(model, context, { apiKey: "test", ...options });
 	for await (const _event of stream) {
 		void _event;
@@ -120,6 +120,26 @@ describe("openai-completions provider retries", () => {
 			expect.objectContaining({ maxRetries: 0 }),
 			expect.objectContaining({ maxRetries: 0 }),
 		]);
+	});
+
+	it("keeps payload and response callbacks logical-request scoped across a transport retry", async () => {
+		vi.useFakeTimers();
+		mockState.requestErrors = [
+			Object.assign(new Error("rate limited"), {
+				status: 429,
+				headers: new Headers({ "retry-after-ms": "100" }),
+			}),
+		];
+		const onPayload = vi.fn((payload: unknown) => payload);
+		const onResponse = vi.fn();
+		const pending = consume({ maxRetries: 1, maxRetryDelayMs: 100, onPayload, onResponse });
+		await vi.advanceTimersByTimeAsync(100);
+		const result = await pending;
+		expect(result.stopReason).toBe("stop");
+		expect(mockState.requestOptions).toHaveLength(2);
+		expect(onPayload).toHaveBeenCalledTimes(1);
+		expect(onResponse).toHaveBeenCalledTimes(1);
+		expect(onResponse.mock.calls[0]?.[0]).toMatchObject({ status: 200 });
 	});
 
 	it("fails immediately when a provider-requested retry delay exceeds the limit", async () => {

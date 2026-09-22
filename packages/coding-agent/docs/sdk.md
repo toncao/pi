@@ -314,8 +314,8 @@ SDK hosts that manage a `ModelRuntime` directly can also compose the canonical s
 const registration = modelRuntime.registerRequestMiddleware({
   id: "audit",
   provider: "anthropic",
-  afterResponse: (response) => {
-    if (response.status === 429) console.warn("anthropic rate limited");
+  afterResponse: (response, context) => {
+    console.debug("anthropic response", response.status, context.requestId);
   },
 });
 
@@ -323,7 +323,7 @@ registration.dispose(); // remove from future requests; in-flight requests finis
 modelRuntime.disposeRequestMiddlewareOwner("my-owner"); // bulk disposal by owner
 ```
 
-Middleware applies to `stream()` and `streamSimple()` dispatch only; deferred fetch/cancel bypasses it (documented gap). Composition order, payload/header semantics, and lifecycle are identical to the extension surface — see [extensions.md](extensions.md#registerproviderrequestmiddlewaremiddleware) for the full contract.
+Middleware applies to `stream()` and `streamSimple()` dispatch only; deferred fetch/cancel bypasses it (documented gap). `afterResponse` observes responses exposed by the adapter, typically the final successful response; intermediate transport retry failures are not a portable callback surface. Composition order, payload/header semantics, cancellation, and lifecycle are identical to the extension surface — see [extensions.md](extensions.md#registerproviderrequestmiddlewaremiddleware) for the full contract.
 
 ### Events
 

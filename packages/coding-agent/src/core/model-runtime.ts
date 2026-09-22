@@ -56,7 +56,6 @@ import {
 } from "./provider-composer.ts";
 import {
 	type ProviderRequestMiddleware,
-	type ProviderRequestMiddlewareChain,
 	type ProviderRequestMiddlewareRegistration,
 	ProviderRequestMiddlewareRegistry,
 } from "./provider-request-middleware.ts";
@@ -592,6 +591,20 @@ export class ModelRuntime implements Models {
 	}> {
 		const provider = this.models.getProvider(model.provider);
 		if (!provider) throw new ModelsError("provider", `Unknown provider: ${model.provider}`);
+		// Capture the immutable middleware generation at logical-request entry.
+		// Auth, caller transforms, and reload can all suspend; none may replace the
+		// policy already selected for this request.
+		const chain =
+			requestId && this.requestMiddleware.size > 0
+				? this.requestMiddleware.snapshot({
+						requestId,
+						runtimeId: this.runtimeId,
+						providerId: model.provider,
+						model,
+						purpose: options?.requestPurpose ?? "other",
+						signal: options?.signal,
+					})
+				: undefined;
 		const resolution = await this.getAuth(model, {
 			apiKey: options?.apiKey,
 			env: options?.env,
@@ -602,43 +615,43 @@ export class ModelRuntime implements Models {
 		const { transformHeaders, ...rawProviderOptions } = options ?? {};
 		const providerOptions = rawProviderOptions as Omit<TOptions, "transformHeaders"> & ProviderRequestOptions;
 		let headers = mergeHeaders(resolution.auth.headers, providerOptions.headers);
-		if (transformHeaders) headers = await transformHeaders(headers ?? {});
-		// Provider-scoped request middleware runs after the existing per-call header
-		// transform so runtime middleware sees the final header set. Snapshot is
-		// per logical request: disposal after this point does not affect this chain.
-		let chain: ProviderRequestMiddlewareChain | undefined;
-		if (requestId && this.requestMiddleware.size > 0) {
-			chain = this.requestMiddleware.snapshot({
-				requestId,
-				runtimeId: this.runtimeId,
-				providerId: model.provider,
-				model,
-				purpose: options?.requestPurpose ?? "other",
-				signal: options?.signal,
-			});
-			if (!chain.empty) headers = await chain.transformHeaders(headers ?? {});
+		if (transformHeaders) {
+			headers = await raceWithAbortSignal(
+				Promise.resolve().then(() => transformHeaders(headers ?? {})),
+				options?.signal,
+			);
 		}
+		// Provider-scoped request middleware runs after the existing per-call header
+		// transform so runtime middleware sees the final header set. The snapshot
+		// was captured before any asynchronous request preparation.
+		if (chain && !chain.empty) headers = await chain.transformHeaders(headers ?? {});
 		const env =
 			resolution.env || providerOptions.env
 				? { ...(resolution.env ?? {}), ...(providerOptions.env ?? {}) }
 				: undefined;
 		if (chain && !chain.empty) {
 			// Compose middleware after existing per-call callbacks so runtime policy
-			// observes the final request view. Attempt counting is per logical
-			// dispatch: adapters invoke onPayload once per network attempt.
+			// observes the final request view. Invocation ordinals are tracked per
+			// callback kind; adapters may invoke these once per logical dispatch even
+			// when their transport performs retries.
 			const callerOnPayload = providerOptions.onPayload;
 			const callerOnResponse = providerOptions.onResponse;
-			let attempts = 0;
+			let payloadInvocations = 0;
+			let responseInvocations = 0;
 			providerOptions.onPayload = async (payload, payloadModel) => {
-				const callerResult = await callerOnPayload?.(payload, payloadModel);
+				const callerResult = await raceWithAbortSignal(
+					Promise.resolve().then(() => callerOnPayload?.(payload, payloadModel)),
+					options?.signal,
+				);
 				const next = callerResult === undefined ? payload : callerResult;
-				const attempt = attempts;
-				attempts++;
-				return await chain.transformPayload(next, attempt);
+				return await chain.transformPayload(next, payloadInvocations++);
 			};
 			providerOptions.onResponse = async (response, responseModel) => {
-				await callerOnResponse?.(response, responseModel);
-				await chain.afterResponse(response, Math.max(0, attempts - 1));
+				await raceWithAbortSignal(
+					Promise.resolve().then(() => callerOnResponse?.(response, responseModel)),
+					options?.signal,
+				);
+				await chain.afterResponse(response, responseInvocations++);
 			};
 		}
 		return {

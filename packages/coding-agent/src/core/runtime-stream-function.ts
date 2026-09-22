@@ -10,9 +10,11 @@ import type { SettingsManager } from "./settings-manager.ts";
  * Runtime-derived stream functions and transport bindings.
  *
  * A `StreamFn` is a capability: permission to issue model requests through one
- * host runtime. `createAgentSession()` builds the canonical provider-aware
- * stream function here; same-process background agents must reuse that binding
- * (`AgentSession.getTransportBinding()`) instead of rediscovering transport
+ * host runtime. `createRuntimeStreamFunction()` is the standalone SDK-host
+ * helper; interactive `createAgentSession()` builds an equivalent inline
+ * function so it can retain session-specific cache warming. Same-process
+ * background agents must reuse the host binding (`AgentSession.getTransportBinding()`)
+ * instead of rediscovering transport
  * behavior, so foreground and background requests resolve the same exact
  * provider, credentials, retry policy, and provider request middleware.
  */
@@ -39,7 +41,7 @@ export interface RuntimeStreamFunctionOptions {
 }
 
 /**
- * Build the canonical provider-aware `StreamFn` used by `createAgentSession()`.
+ * Build the standalone provider-aware `StreamFn` used by SDK hosts and transport bindings.
  *
  * Request path:
  * 1. Read retry and timeout settings at call time.

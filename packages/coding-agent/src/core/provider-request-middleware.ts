@@ -1,4 +1,5 @@
 import type { Api, Model, ProviderHeaders, ProviderResponse, RequestPurpose } from "@earendil-works/pi-ai";
+import { raceWithAbortSignal } from "../utils/abort.ts";
 
 /**
  * Provider-scoped request middleware.
@@ -45,9 +46,9 @@ export interface ProviderRequestMiddlewareContext {
 	/** Logical request purpose. Untrusted metadata; never authorization. */
 	readonly purpose: ProviderRequestPurpose;
 	/**
-	 * 0-based network attempt for the current callback invocation. Adapters that
-	 * retry invoke onPayload/onResponse once per attempt; single-shot requests
-	 * always observe 0.
+	 * 0-based invocation index for this callback kind within the logical request.
+	 * Adapter callbacks are not guaranteed to run once per network retry; this is
+	 * diagnostic ordering metadata, not an authoritative transport attempt count.
 	 */
 	readonly attempt: number;
 	/** Caller-supplied abort signal for the logical request, if any. */
@@ -200,11 +201,16 @@ export class ProviderRequestMiddlewareChain {
 		};
 	}
 
+	private async abortable<T>(operation: () => T | Promise<T>): Promise<T> {
+		this.match.signal?.throwIfAborted();
+		return raceWithAbortSignal(Promise.resolve().then(operation), this.match.signal);
+	}
+
 	async transformHeaders(headers: ProviderHeaders): Promise<ProviderHeaders> {
 		let value = headers;
 		for (const entry of this.entries) {
 			if (!entry.middleware.transformHeaders) continue;
-			const next = await entry.middleware.transformHeaders(value, this.context(0));
+			const next = await this.abortable(() => entry.middleware.transformHeaders!(value, this.context(0)));
 			if (next !== undefined) value = next;
 		}
 		return value;
@@ -214,7 +220,7 @@ export class ProviderRequestMiddlewareChain {
 		let value = payload;
 		for (const entry of this.entries) {
 			if (!entry.middleware.transformPayload) continue;
-			const next = await entry.middleware.transformPayload(value, this.context(attempt));
+			const next = await this.abortable(() => entry.middleware.transformPayload!(value, this.context(attempt)));
 			if (next !== undefined) value = next;
 		}
 		return value;
@@ -223,7 +229,7 @@ export class ProviderRequestMiddlewareChain {
 	async afterResponse(response: ProviderResponse, attempt: number): Promise<void> {
 		for (const entry of this.entries) {
 			if (!entry.middleware.afterResponse) continue;
-			await entry.middleware.afterResponse(response, this.context(attempt));
+			await this.abortable(() => entry.middleware.afterResponse!(response, this.context(attempt)));
 		}
 	}
 }

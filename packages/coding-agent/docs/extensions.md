@@ -2017,7 +2017,7 @@ export default function (pi) {
 - **Payloads** are the provider's native serialized request body (Anthropic Messages parameters, OpenAI Responses body, ...). Return `undefined` (or nothing) to keep the payload; any other value replaces it. Middleware must not assume a schema unless it scopes itself with `apis`.
 - **Headers** merge case-insensitively; a `null` value removes a header where the provider contract permits. Bedrock SigV4-reserved headers (`x-amz-*`, `authorization`, `host`) cannot be replaced.
 - **Failures** are strict: a throwing transform fails the request before send; a throwing observer fails the request, matching awaited-callback behavior.
-- **Retries**: `ctx.attempt` is the 0-based network attempt when the adapter retries (adapters invoke callbacks once per attempt).
+- **Invocation ordering**: `ctx.attempt` is the 0-based invocation index for that callback kind within one logical request. It is not an authoritative network-retry count: several adapters build/transform payload once, retry transport internally, and expose only the final successful response. Retry failures such as an intermediate 429 are not guaranteed to reach `afterResponse`.
 - **Context** (`ctx`) exposes `requestId`, `runtimeId`, `providerId`, `model`, `api`, `purpose`, `attempt`, and `signal`. `purpose` is untrusted caller-supplied routing metadata — never treat it as authorization.
 
 **Lifecycle**: registrations are bound to the extension. A `/reload` or session shutdown disposes them automatically; reloaded extensions register fresh middleware, and in-flight requests finish with the snapshot they captured. The `id` must be unique within the session's runtime, and at least one of `transformHeaders`, `transformPayload`, or `afterResponse` is required.

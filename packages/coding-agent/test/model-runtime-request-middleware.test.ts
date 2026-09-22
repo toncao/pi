@@ -38,6 +38,7 @@ interface CapturedRequest {
 
 interface FakeProviderOptions {
 	capture: (request: CapturedRequest) => void;
+	resolveAuth?: () => Promise<void>;
 	/** Invoked when an attempt starts, before send and response callbacks. */
 	onAttempt?: (attempt: number) => void;
 	/** Simulate one retry by invoking onPayload/onResponse twice. */
@@ -112,7 +113,10 @@ function fakeProvider(providerId: string, options: FakeProviderOptions): Provide
 		auth: {
 			apiKey: {
 				name: "Test key",
-				resolve: async () => ({ auth: { apiKey: `${providerId}-key` }, source: "test" }),
+				resolve: async () => {
+					await options.resolveAuth?.();
+					return { auth: { apiKey: `${providerId}-key` }, source: "test" };
+				},
 			},
 		},
 		getModels: () => [model],
@@ -293,6 +297,86 @@ describe("ModelRuntime provider request middleware", () => {
 		expect(message.stopReason).toBe("error");
 		expect(message.errorMessage).toMatch(/transform failed/);
 		expect(captured).toHaveLength(0);
+	});
+
+	it("captures the middleware generation before asynchronous authentication", async () => {
+		const captured: CapturedRequest[] = [];
+		let authEntered!: () => void;
+		let releaseAuth!: () => void;
+		const authEnteredPromise = new Promise<void>((resolve) => {
+			authEntered = resolve;
+		});
+		const authPaused = new Promise<void>((resolve) => {
+			releaseAuth = resolve;
+		});
+		const runtime = await createTestRuntime([
+			fakeProvider("alpha", {
+				capture: (request) => captured.push(request),
+				resolveAuth: async () => {
+					authEntered();
+					await authPaused;
+				},
+			}),
+		]);
+		const oldRegistration = runtime.registerRequestMiddleware({
+			id: "old-generation",
+			provider: "alpha",
+			transformPayload: (payload) => ({ ...(payload as Record<string, unknown>), generation: "old" }),
+		});
+		const pending = runtime.streamSimple(modelFor("alpha"), emptyContext()).result();
+		await authEnteredPromise;
+		oldRegistration.dispose();
+		runtime.registerRequestMiddleware({
+			id: "new-generation",
+			provider: "alpha",
+			transformPayload: (payload) => ({ ...(payload as Record<string, unknown>), generation: "new" }),
+		});
+		releaseAuth();
+		expect((await pending).stopReason).toBe("stop");
+		expect(captured[0]?.payload).toMatchObject({ generation: "old" });
+		await runtime.completeSimple(modelFor("alpha"), emptyContext());
+		expect(captured[1]?.payload).toMatchObject({ generation: "new" });
+	});
+
+	it("cancels a paused header middleware before provider send without affecting a sibling request", async () => {
+		const captured: CapturedRequest[] = [];
+		let entered!: () => void;
+		let release!: () => void;
+		const enteredPromise = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const paused = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let pauseFirst = true;
+		const runtime = await createTestRuntime([
+			fakeProvider("alpha", { capture: (request) => captured.push(request) }),
+		]);
+		runtime.registerRequestMiddleware({
+			id: "async-header",
+			provider: "alpha",
+			transformHeaders: async (headers) => {
+				if (pauseFirst) {
+					pauseFirst = false;
+					entered();
+					await paused;
+				}
+				return { ...headers, "x-ready": "yes" };
+			},
+		});
+		const controller = new AbortController();
+		const cancelled = runtime.streamSimple(modelFor("alpha"), emptyContext(), { signal: controller.signal }).result();
+		await enteredPromise;
+		controller.abort(new Error("cancel request"));
+		const sibling = await runtime.completeSimple(modelFor("alpha"), emptyContext());
+		expect(sibling.stopReason).toBe("stop");
+		const cancelledMessage = await cancelled;
+		expect(cancelledMessage.stopReason).toBe("error");
+		expect(cancelledMessage.errorMessage).toMatch(/cancel request/);
+		expect(captured).toHaveLength(1);
+		release();
+		await Promise.resolve();
+		expect(captured).toHaveLength(1);
 	});
 
 	it("disposal removes future matches but started requests keep their snapshot", async () => {
