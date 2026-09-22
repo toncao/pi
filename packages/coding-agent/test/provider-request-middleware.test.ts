@@ -242,6 +242,91 @@ describe("ProviderRequestMiddlewareRegistry", () => {
 		expect((context.model as Model<Api>).id).toBe("model-1");
 	});
 
+	it.each(["headers", "payload", "response"] as const)(
+		"aborts a paused %s callback without running later middleware",
+		async (kind) => {
+			const registry = new ProviderRequestMiddlewareRegistry();
+			const controller = new AbortController();
+			let release!: () => void;
+			let entered!: () => void;
+			const enteredPromise = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const paused = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let laterRan = false;
+			registry.register(
+				observerMiddleware("paused", {
+					...(kind === "headers"
+						? {
+								transformHeaders: async () => {
+									entered();
+									await paused;
+								},
+							}
+						: {}),
+					...(kind === "payload"
+						? {
+								transformPayload: async () => {
+									entered();
+									await paused;
+								},
+							}
+						: {}),
+					...(kind === "response"
+						? {
+								afterResponse: async () => {
+									entered();
+									await paused;
+								},
+							}
+						: {}),
+				}),
+				"sdk",
+			);
+			registry.register(
+				observerMiddleware("later", {
+					...(kind === "headers"
+						? {
+								transformHeaders: () => {
+									laterRan = true;
+								},
+							}
+						: {}),
+					...(kind === "payload"
+						? {
+								transformPayload: () => {
+									laterRan = true;
+								},
+							}
+						: {}),
+					...(kind === "response"
+						? {
+								afterResponse: () => {
+									laterRan = true;
+								},
+							}
+						: {}),
+				}),
+				"sdk",
+			);
+			const chain = registry.snapshot(createMatch({ signal: controller.signal }));
+			const pending =
+				kind === "headers"
+					? chain.transformHeaders({})
+					: kind === "payload"
+						? chain.transformPayload({}, 0)
+						: chain.afterResponse({ status: 200, headers: {} }, 0);
+			await enteredPromise;
+			controller.abort(new Error("cancel middleware"));
+			await expect(pending).rejects.toThrow("cancel middleware");
+			release();
+			await Promise.resolve();
+			expect(laterRan).toBe(false);
+		},
+	);
+
 	it("afterResponse runs observers in order and propagates failures", async () => {
 		const registry = new ProviderRequestMiddlewareRegistry();
 		const order: string[] = [];
