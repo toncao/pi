@@ -2136,6 +2136,7 @@ pi.registerToolRenderer((toolName, next) => {
 Return a copy of the effective settings, with global and project settings merged and overrides applied.
 
 
+<a id="registerproviderrequestmiddlewaremiddleware"></a>
 ### pi.registerProviderRequestMiddleware(middleware)
 
 Register provider-scoped request middleware owned by this extension. Middleware transforms or observes requests for **one exact provider** — header transforms, adapter-built payload transforms, and response observers — inside the session's `ModelRuntime`.

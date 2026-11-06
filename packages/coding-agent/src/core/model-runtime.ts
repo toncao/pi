@@ -30,6 +30,7 @@ import {
 	type ImageModel,
 	type ImagesContext,
 	type ImagesOptions,
+	isModelType,
 	type LoginOptions,
 	lazyStream,
 	type Message,
@@ -691,7 +692,7 @@ export class ModelRuntime implements Models {
 		// Auth, caller transforms, and reload can all suspend; none may replace the
 		// policy already selected for this request.
 		const chain =
-			requestId && this.requestMiddleware.size > 0
+			requestId && isModelType(model, "chat") && this.requestMiddleware.size > 0
 				? this.requestMiddleware.snapshot({
 						requestId,
 						runtimeId: this.runtimeId,
@@ -831,7 +832,11 @@ export class ModelRuntime implements Models {
 			model,
 			async () => {
 				assertChatModel(model);
-				const prepared = await this.prepareRequest(model, options, this.requestMiddleware.size > 0 ? uuidv7() : undefined);
+				const prepared = await this.prepareRequest(
+					model,
+					options,
+					this.requestMiddleware.size > 0 ? uuidv7() : undefined,
+				);
 				return prepared.provider.streamSimple(prepared.model, transcript, prepared.options as SimpleStreamOptions);
 			},
 			undefined,
