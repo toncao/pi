@@ -14,6 +14,12 @@ try {
   console.log(session.getLastAssistantText());
 } finally {
   session.dispose();
+}
+```
+
+This uses the working directory, discovered resources, stored settings, and configured credentials. `prompt()` resolves when the run finishes.
+
+The [complete minimal example](../examples/sdk/01-minimal.ts) also streams text events. All [SDK examples](../examples/sdk/) are typechecked with the repository.
 
 ## Transport bindings and background agents
 
@@ -67,13 +73,6 @@ modelRuntime.disposeRequestMiddlewareOwner("my-owner"); // bulk disposal by owne
 ```
 
 Middleware applies to `stream()` and `streamSimple()` dispatch only; deferred fetch/cancel bypasses it (documented gap). `afterResponse` observes responses exposed by the adapter, typically the final successful response; intermediate transport retry failures are not a portable callback surface. Composition order, payload/header semantics, cancellation, and lifecycle are identical to the extension surface — see [extensions.md](extensions.md#registerproviderrequestmiddlewaremiddleware) for the full contract.
-
-}
-```
-
-This uses the working directory, discovered resources, stored settings, and configured credentials. `prompt()` resolves when the run finishes.
-
-The [complete minimal example](../examples/sdk/01-minimal.ts) also streams text events. All [SDK examples](../examples/sdk/) are typechecked with the repository.
 
 <a id="session-management"></a>
 

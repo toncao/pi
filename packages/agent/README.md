@@ -225,7 +225,8 @@ const agent = new Agent({
   // Follow-up mode: "one-at-a-time" (default) or "all"
   followUpMode: "one-at-a-time",
 
-  // Required stream function. Receives a TranscriptContext: the prompt and tools
+  // Required stream function — see "Stream Functions" below. Receives a
+  // TranscriptContext: the prompt and tools
   // are in the transcript's system messages, not on the context.
   streamFn: models.streamSimple.bind(models),
 
