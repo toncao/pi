@@ -1,9 +1,9 @@
 import { Agent, type AgentMessage, type AgentOptions, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { Message, RequestPurpose } from "@earendil-works/pi-ai";
 import { uuidv7 } from "@earendil-works/pi-ai";
+import { getClientIdentity } from "./client-identity.ts";
 import type { ExtensionRunner } from "./extensions/index.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
-import { getClientIdentity } from "./client-identity.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 
 /**

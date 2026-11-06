@@ -371,7 +371,8 @@ describe("ModelRuntime provider request middleware", () => {
 		const sibling = await runtime.completeSimple(modelFor("alpha"), emptyContext());
 		expect(sibling.stopReason).toBe("stop");
 		const cancelledMessage = await cancelled;
-		expect(cancelledMessage.stopReason).toBe("error");
+		// The signal-aware lazy stream reports caller cancellation separately from failures.
+		expect(cancelledMessage.stopReason).toBe("aborted");
 		expect(cancelledMessage.errorMessage).toMatch(/cancel request/);
 		expect(captured).toHaveLength(1);
 		release();
